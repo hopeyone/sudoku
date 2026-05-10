@@ -48,6 +48,8 @@ function Cell({
       className={classes.join(' ')}
       onClick={() => onSelect(i)}
       tabIndex={-1}
+      data-cell={i}
+      data-given={given ? '1' : '0'}
     >
       {value !== 0 ? (
         <span className="value">{value}</span>

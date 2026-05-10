@@ -63,6 +63,20 @@ export default function App() {
     return counts;
   }, [puzzle, entries]);
 
+  // Dev-only test hook: expose puzzle/state for Playwright. Stripped from prod builds.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (window as unknown as { __sudoku?: unknown }).__sudoku = {
+      puzzle,
+      entries,
+      pencil,
+      selected,
+      pencilMode,
+      loading,
+      solved,
+    };
+  }, [puzzle, entries, pencil, selected, pencilMode, loading, solved]);
+
   const enterDigit = useCallback(
     (d: number) => {
       if (!puzzle || solved) return;
