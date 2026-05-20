@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "sudoku-api",
+	"name": "sudoku",
 	"main": "worker/index.ts",
 	"compatibility_date": "2025-09-01",
 	"observability": {
