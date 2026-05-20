@@ -1,0 +1,3 @@
+# Local development bypass for Cloudflare Access. Copy to .dev.vars and edit.
+# DO NOT commit .dev.vars. Production identity comes from Access, never this var.
+DEV_USER_EMAIL=you@example.com

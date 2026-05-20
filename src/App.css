@@ -110,9 +110,10 @@
   position: relative;
   background: #161922;
   border: 1px solid #2a2f3a;
-  color: #cdd2da;
+  /* User-entered digits: blue tint, lighter weight */
+  color: #7aa2ff;
   font-size: clamp(20px, 5.2vw, 30px);
-  font-weight: 500;
+  font-weight: 400;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -124,8 +125,9 @@
 }
 
 .cell.given {
-  color: #f5f6f8;
-  font-weight: 600;
+  /* Clues: bright white, bold — clearly distinct from user entries */
+  color: #ffffff;
+  font-weight: 700;
   background: #1a1d24;
 }
 
@@ -272,6 +274,38 @@
 .meta {
   color: #7c8492;
   font-size: 13px;
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #9aa3b1;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.stats-timer {
+  font-variant-numeric: tabular-nums;
+  color: #cdd2da;
+  font-weight: 500;
+}
+
+.stats-counts {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stats-pill {
+  background: #1a1d24;
+  border: 1px solid #2a2f3a;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #cdd2da;
 }
 
 @media (max-width: 480px) {

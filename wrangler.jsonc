@@ -1,0 +1,38 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "sudoku-api",
+	"main": "worker/index.ts",
+	"compatibility_date": "2025-09-01",
+	"observability": {
+		"enabled": true
+	},
+	// R2 bucket for storing per-user game progress.
+	// Create with: npx wrangler r2 bucket create sudoku-progress
+	// And for local/preview:  npx wrangler r2 bucket create sudoku-progress-dev
+	"r2_buckets": [
+		{
+			"binding": "PROGRESS",
+			"bucket_name": "sudoku-progress",
+			"preview_bucket_name": "sudoku-progress-dev"
+		},
+		{
+			"bucket_name": "sudoku-progress",
+			"binding": "sudoku_progress"
+		},
+		{
+			"bucket_name": "sudoku-progress-dev",
+			"binding": "sudoku_progress_dev"
+		}
+	],
+	// ALLOWED_ORIGIN restricts which origins may call the API. Set to the
+	// Pages site origin in production (e.g. "https://sudoku.example.com").
+	// For local dev, leave unset to echo the request Origin.
+	//
+	// DEV_USER_EMAIL is a local-only bypass — set it via:
+	//   npx wrangler secret put DEV_USER_EMAIL --env dev
+	// or in a .dev.vars file. NEVER set this in production: it lets anyone
+	// hitting the worker impersonate that user. In production the email comes
+	// from the Cf-Access-Authenticated-User-Email header that Cloudflare Access
+	// injects after authenticating, which is the only safe source of identity.
+	"vars": {}
+}

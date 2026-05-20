@@ -4,6 +4,13 @@ import { NumberPad } from './components/NumberPad';
 import { N, SIZE, bitFor, colOf, rowOf } from './sudoku/grid';
 import { generate, Puzzle } from './sudoku/generator';
 import { Difficulty, DIFFICULTIES } from './sudoku/rate';
+import {
+  apiEnabled,
+  completeGame,
+  fetchState,
+  saveCurrent,
+  type Stats,
+} from './api';
 import './App.css';
 
 const DIFF_LABEL: Record<Difficulty, string> = {
@@ -13,6 +20,13 @@ const DIFF_LABEL: Record<Difficulty, string> = {
   expert: 'Expert',
 };
 
+function formatDuration(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export default function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -21,14 +35,22 @@ export default function App() {
   const [selected, setSelected] = useState<number>(40);
   const [pencilMode, setPencilMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [startedAt, setStartedAt] = useState<number>(() => Date.now());
+  const [stats, setStats] = useState<Stats | null>(null);
 
   const generationToken = useRef(0);
+  // Signature of the last state successfully synced with the server. Save effect
+  // skips when the current signature matches — prevents echoing back data we
+  // just loaded from the server.
+  const lastSavedSig = useRef<string>('');
+  const completedRef = useRef<boolean>(false);
 
   const newGame = useCallback((diff: Difficulty) => {
     const token = ++generationToken.current;
     setLoading(true);
     setPuzzle(null);
-    // Yield to the browser so the loading state paints before generation blocks the thread.
+    completedRef.current = false;
+    // Yield so the loading state paints before generation blocks the thread.
     setTimeout(() => {
       const p = generate(diff);
       if (token !== generationToken.current) return;
@@ -36,12 +58,53 @@ export default function App() {
       setEntries(new Array<number>(SIZE).fill(0));
       setPencil(new Array<number>(SIZE).fill(0));
       setSelected(40);
+      setPencilMode(false);
+      setStartedAt(Date.now());
       setLoading(false);
     }, 16);
   }, []);
 
+  // Mount: try to hydrate from server, otherwise start a fresh easy game.
   useEffect(() => {
-    newGame('easy');
+    let cancelled = false;
+    async function init() {
+      if (!apiEnabled) {
+        newGame('easy');
+        return;
+      }
+      try {
+        const { current, stats: initialStats } = await fetchState();
+        if (cancelled) return;
+        setStats(initialStats);
+        if (current) {
+          setPuzzle(current.puzzle);
+          setEntries(current.entries);
+          setPencil(current.pencil);
+          setSelected(current.selected);
+          setPencilMode(current.pencilMode);
+          setStartedAt(current.startedAt);
+          setDifficulty(current.puzzle.difficulty);
+          setLoading(false);
+          lastSavedSig.current = signatureOf(
+            current.puzzle,
+            current.entries,
+            current.pencil,
+            current.selected,
+            current.pencilMode,
+            current.startedAt
+          );
+        } else {
+          newGame('easy');
+        }
+      } catch {
+        // Server unavailable — fall back to local-only mode for this session.
+        if (!cancelled) newGame('easy');
+      }
+    }
+    init();
+    return () => {
+      cancelled = true;
+    };
   }, [newGame]);
 
   const solved = useMemo(() => {
@@ -63,6 +126,41 @@ export default function App() {
     return counts;
   }, [puzzle, entries]);
 
+  // Debounced auto-save. Fires ~1s after the last state change. Skipped when
+  // the signature matches the last successful save (e.g. immediately after
+  // hydration, or when nothing material changed).
+  useEffect(() => {
+    if (!apiEnabled || !puzzle || loading || solved) return;
+    const sig = signatureOf(puzzle, entries, pencil, selected, pencilMode, startedAt);
+    if (sig === lastSavedSig.current) return;
+    const timer = setTimeout(() => {
+      saveCurrent({ puzzle, entries, pencil, selected, pencilMode, startedAt, updatedAt: Date.now() })
+        .then(() => {
+          lastSavedSig.current = sig;
+        })
+        .catch(() => {
+          /* surface in console; non-fatal */
+        });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [puzzle, entries, pencil, selected, pencilMode, startedAt, loading, solved]);
+
+  // On solved transition: log completion exactly once.
+  useEffect(() => {
+    if (!apiEnabled || !puzzle || !solved) return;
+    if (completedRef.current) return;
+    completedRef.current = true;
+    const durationMs = Date.now() - startedAt;
+    completeGame({ difficulty: puzzle.difficulty, durationMs, clues: puzzle.clues })
+      .then((res) => {
+        setStats(res.stats);
+        lastSavedSig.current = ''; // server cleared current.json; next save (after New game) should send
+      })
+      .catch(() => {
+        completedRef.current = false; // allow retry on next render if it failed
+      });
+  }, [solved, puzzle, startedAt]);
+
   // Dev-only test hook: expose puzzle/state for Playwright. Stripped from prod builds.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -74,8 +172,10 @@ export default function App() {
       pencilMode,
       loading,
       solved,
+      stats,
+      startedAt,
     };
-  }, [puzzle, entries, pencil, selected, pencilMode, loading, solved]);
+  }, [puzzle, entries, pencil, selected, pencilMode, loading, solved, stats, startedAt]);
 
   const enterDigit = useCallback(
     (d: number) => {
@@ -83,7 +183,6 @@ export default function App() {
       const i = selected;
       if (puzzle.given[i] !== 0) return;
       if (pencilMode) {
-        // Toggle pencil mark; clear any committed entry first.
         setEntries((prev) => {
           if (prev[i] === 0) return prev;
           const next = prev.slice();
@@ -138,7 +237,6 @@ export default function App() {
     });
   }, []);
 
-  // Global keyboard handling
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -234,9 +332,63 @@ export default function App() {
             <div className="meta">
               {DIFF_LABEL[puzzle.difficulty]} · {puzzle.clues} clues
             </div>
+            {stats && <StatsLine stats={stats} startedAt={startedAt} solved={solved} />}
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function signatureOf(
+  puzzle: Puzzle,
+  entries: number[],
+  pencil: number[],
+  selected: number,
+  pencilMode: boolean,
+  startedAt: number
+): string {
+  return JSON.stringify({
+    g: puzzle.given,
+    s: puzzle.solution,
+    d: puzzle.difficulty,
+    e: entries,
+    p: pencil,
+    sel: selected,
+    pm: pencilMode,
+    sa: startedAt,
+  });
+}
+
+function StatsLine({
+  stats,
+  startedAt,
+  solved,
+}: {
+  stats: Stats;
+  startedAt: number;
+  solved: boolean;
+}) {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (solved) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [solved]);
+  const elapsed = solved ? null : formatDuration(now - startedAt);
+  return (
+    <div className="stats">
+      {elapsed && <span className="stats-timer">{elapsed}</span>}
+      <span className="stats-counts">
+        Solved: {stats.totalSolved}
+        {DIFFICULTIES.map((d) =>
+          stats.byDifficulty[d].solved > 0 ? (
+            <span key={d} className="stats-pill">
+              {DIFF_LABEL[d]} {stats.byDifficulty[d].solved}
+            </span>
+          ) : null
+        )}
+      </span>
     </div>
   );
 }

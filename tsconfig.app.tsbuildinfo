@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/board.tsx","./src/components/numberpad.tsx","./src/sudoku/generator.ts","./src/sudoku/grid.ts","./src/sudoku/rate.ts","./src/sudoku/solver.ts","./src/sudoku/techniques.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/components/board.tsx","./src/components/numberpad.tsx","./src/sudoku/generator.ts","./src/sudoku/grid.ts","./src/sudoku/rate.ts","./src/sudoku/solver.ts","./src/sudoku/techniques.ts"],"version":"5.9.3"}

@@ -22,8 +22,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npx tsc -b
+      - name: Type-check (app + worker)
+        run: npm run typecheck
 
       - name: Get Playwright version
         id: pw
