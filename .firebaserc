@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "sudoku-emulator",
+    "sudoku": "sudoku-926b8"
+  },
+  "targets": {},
+  "etags": {}
+}

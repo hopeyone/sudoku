@@ -1,0 +1,46 @@
+# Build the PR and deploy it to a temporary preview channel. The action posts
+# the preview URL as a comment on the PR. Previews expire after 7 days by
+# default; tweak with `expires` if you want longer.
+#
+# Secrets used: same as the merge workflow.
+# Note: this workflow does NOT push Firestore rules — preview channels share
+# the project's live rules. If you're touching rules, deploy them via the
+# merge workflow (or run `npm run deploy:rules` locally first).
+
+name: Deploy preview channel
+
+on:
+  pull_request:
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository  # skip fork PRs (no access to secrets)
+    permissions:
+      contents: read
+      pull-requests: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: npm run build
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SUDOKU_926B8 }}
+          projectId: sudoku-926b8
+          expires: 7d

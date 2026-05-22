@@ -4,13 +4,21 @@ import { NumberPad } from './components/NumberPad';
 import { N, SIZE, bitFor, colOf, rowOf } from './sudoku/grid';
 import { generate, Puzzle } from './sudoku/generator';
 import { Difficulty, DIFFICULTIES } from './sudoku/rate';
+import { useAuth } from './auth';
 import {
-  apiEnabled,
+  firebaseEnabled,
+  signInAnonymouslyForEmulator,
+  signInWithGoogle,
+  signOut,
+  usingEmulators,
+} from './firebase';
+import {
+  clearCurrent,
   completeGame,
   fetchState,
   saveCurrent,
   type Stats,
-} from './api';
+} from './firestore';
 import './App.css';
 
 const DIFF_LABEL: Record<Difficulty, string> = {
@@ -28,6 +36,10 @@ function formatDuration(ms: number): string {
 }
 
 export default function App() {
+  const { user, loading: authLoading } = useAuth();
+  const uid = user?.uid ?? null;
+  const syncEnabled = firebaseEnabled && !!uid;
+
   const [difficulty, setDifficulty] = useState<Difficulty>('easy');
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [entries, setEntries] = useState<number[]>(() => new Array<number>(SIZE).fill(0));
@@ -37,11 +49,9 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [startedAt, setStartedAt] = useState<number>(() => Date.now());
   const [stats, setStats] = useState<Stats | null>(null);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   const generationToken = useRef(0);
-  // Signature of the last state successfully synced with the server. Save effect
-  // skips when the current signature matches — prevents echoing back data we
-  // just loaded from the server.
   const lastSavedSig = useRef<string>('');
   const completedRef = useRef<boolean>(false);
 
@@ -50,7 +60,6 @@ export default function App() {
     setLoading(true);
     setPuzzle(null);
     completedRef.current = false;
-    // Yield so the loading state paints before generation blocks the thread.
     setTimeout(() => {
       const p = generate(diff);
       if (token !== generationToken.current) return;
@@ -64,16 +73,18 @@ export default function App() {
     }, 16);
   }, []);
 
-  // Mount: try to hydrate from server, otherwise start a fresh easy game.
+  // Hydrate from Firestore once auth is ready. Falls back to a fresh easy
+  // game on any error, or when Firebase isn't configured at all.
   useEffect(() => {
+    if (authLoading) return;
     let cancelled = false;
     async function init() {
-      if (!apiEnabled) {
-        newGame('easy');
+      if (!syncEnabled || !uid) {
+        if (!cancelled) newGame('easy');
         return;
       }
       try {
-        const { current, stats: initialStats } = await fetchState();
+        const { current, stats: initialStats } = await fetchState(uid);
         if (cancelled) return;
         setStats(initialStats);
         if (current) {
@@ -97,7 +108,6 @@ export default function App() {
           newGame('easy');
         }
       } catch {
-        // Server unavailable — fall back to local-only mode for this session.
         if (!cancelled) newGame('easy');
       }
     }
@@ -105,7 +115,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [newGame]);
+  }, [authLoading, syncEnabled, uid, newGame]);
 
   const solved = useMemo(() => {
     if (!puzzle) return false;
@@ -126,40 +136,46 @@ export default function App() {
     return counts;
   }, [puzzle, entries]);
 
-  // Debounced auto-save. Fires ~1s after the last state change. Skipped when
-  // the signature matches the last successful save (e.g. immediately after
-  // hydration, or when nothing material changed).
+  // Debounced auto-save to Firestore.
   useEffect(() => {
-    if (!apiEnabled || !puzzle || loading || solved) return;
+    if (!syncEnabled || !uid || !puzzle || loading || solved) return;
     const sig = signatureOf(puzzle, entries, pencil, selected, pencilMode, startedAt);
     if (sig === lastSavedSig.current) return;
     const timer = setTimeout(() => {
-      saveCurrent({ puzzle, entries, pencil, selected, pencilMode, startedAt, updatedAt: Date.now() })
+      saveCurrent(uid, {
+        puzzle,
+        entries,
+        pencil,
+        selected,
+        pencilMode,
+        startedAt,
+        updatedAt: Date.now(),
+      })
         .then(() => {
           lastSavedSig.current = sig;
         })
         .catch(() => {
-          /* surface in console; non-fatal */
+          /* non-fatal */
         });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [puzzle, entries, pencil, selected, pencilMode, startedAt, loading, solved]);
+  }, [syncEnabled, uid, puzzle, entries, pencil, selected, pencilMode, startedAt, loading, solved]);
 
-  // On solved transition: log completion exactly once.
+  // On solved transition: complete + update stats exactly once.
   useEffect(() => {
-    if (!apiEnabled || !puzzle || !solved) return;
+    if (!syncEnabled || !uid || !puzzle || !solved) return;
     if (completedRef.current) return;
     completedRef.current = true;
     const durationMs = Date.now() - startedAt;
-    completeGame({ difficulty: puzzle.difficulty, durationMs, clues: puzzle.clues })
+    completeGame(uid, { difficulty: puzzle.difficulty, durationMs, clues: puzzle.clues })
       .then((res) => {
         setStats(res.stats);
-        lastSavedSig.current = ''; // server cleared current.json; next save (after New game) should send
+        lastSavedSig.current = '';
       })
       .catch(() => {
-        completedRef.current = false; // allow retry on next render if it failed
+        completedRef.current = false;
       });
-  }, [solved, puzzle, startedAt]);
+  }, [syncEnabled, uid, solved, puzzle, startedAt]);
 
   // Dev-only test hook: expose puzzle/state for Playwright. Stripped from prod builds.
   useEffect(() => {
@@ -174,8 +190,23 @@ export default function App() {
       solved,
       stats,
       startedAt,
+      uid,
+      authLoading,
+      firebaseEnabled,
     };
-  }, [puzzle, entries, pencil, selected, pencilMode, loading, solved, stats, startedAt]);
+  }, [
+    puzzle,
+    entries,
+    pencil,
+    selected,
+    pencilMode,
+    loading,
+    solved,
+    stats,
+    startedAt,
+    uid,
+    authLoading,
+  ]);
 
   const enterDigit = useCallback(
     (d: number) => {
@@ -279,6 +310,35 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [enterDigit, eraseCell, moveSelection]);
 
+  const handleSignIn = async () => {
+    setSignInError(null);
+    try {
+      if (usingEmulators) await signInAnonymouslyForEmulator();
+      else await signInWithGoogle();
+    } catch (err) {
+      setSignInError((err as Error).message);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    setStats(null);
+    lastSavedSig.current = '';
+    // Discard server-cleared current so we don't try to push it under a different user.
+    completedRef.current = false;
+  };
+
+  const handleNewGameClick = async () => {
+    if (syncEnabled && uid && puzzle && !solved) {
+      try {
+        await clearCurrent(uid);
+      } catch {
+        /* non-fatal */
+      }
+    }
+    newGame(difficulty);
+  };
+
   return (
     <div className="app">
       <header className="header">
@@ -298,14 +358,40 @@ export default function App() {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className="new-game"
-          onClick={() => newGame(difficulty)}
-          disabled={loading}
-        >
-          New game
-        </button>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="new-game"
+            onClick={handleNewGameClick}
+            disabled={loading}
+          >
+            New game
+          </button>
+          {firebaseEnabled && (
+            user ? (
+              <button
+                type="button"
+                className="auth-btn"
+                onClick={handleSignOut}
+                data-auth="signed-in"
+                title={user.email || user.uid}
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="auth-btn"
+                onClick={handleSignIn}
+                disabled={authLoading}
+                data-auth="signed-out"
+              >
+                {usingEmulators ? 'Sign in (anon)' : 'Sign in with Google'}
+              </button>
+            )
+          )}
+        </div>
+        {signInError && <div className="auth-error">{signInError}</div>}
       </header>
 
       <main className="main">
@@ -331,6 +417,7 @@ export default function App() {
             />
             <div className="meta">
               {DIFF_LABEL[puzzle.difficulty]} · {puzzle.clues} clues
+              {syncEnabled ? ' · synced' : firebaseEnabled ? ' · local only — sign in to sync' : ''}
             </div>
             {stats && <StatsLine stats={stats} startedAt={startedAt} solved={solved} />}
           </>

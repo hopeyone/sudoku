@@ -52,7 +52,14 @@
   color: #fff;
 }
 
-.new-game {
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.new-game,
+.auth-btn {
   background: transparent;
   color: #9aa3b1;
   border: 1px solid #2a2f3a;
@@ -61,6 +68,27 @@
   cursor: pointer;
   font-size: 14px;
   transition: background 0.15s, color 0.15s;
+}
+
+.auth-btn[data-auth="signed-out"] {
+  background: #3a72ff;
+  border-color: #3a72ff;
+  color: #fff;
+}
+
+.auth-btn[data-auth="signed-out"]:hover:not(:disabled) {
+  background: #2a5aff;
+  border-color: #2a5aff;
+}
+
+.auth-btn:hover:not(:disabled) {
+  background: #232732;
+  color: #e6e8eb;
+}
+
+.auth-error {
+  color: #ff8a8a;
+  font-size: 12px;
 }
 
 .new-game:hover:not(:disabled) {

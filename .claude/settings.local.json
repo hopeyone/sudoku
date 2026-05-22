@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "PowerShell(npx playwright test 2>&1)",
-      "PowerShell($conn = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }; if \\($conn\\) { $conn | ForEach-Object { Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue } | Select-Object Id, ProcessName, Path | Format-List } else { 'no listener' })"
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }; if \\($conn\\) { $conn | ForEach-Object { Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue } | Select-Object Id, ProcessName, Path | Format-List } else { 'no listener' })",
+      "PowerShell(npm uninstall wrangler @cloudflare/workers-types --no-audit --no-fund --loglevel=error)",
+      "PowerShell(npm install firebase --no-audit --no-fund --loglevel=error)",
+      "PowerShell(npm install -D firebase-tools --no-audit --no-fund --loglevel=error)",
+      "PowerShell(npx tsc -b 2>&1)",
+      "PowerShell(npm run typecheck 2>&1)"
     ]
   }
 }
